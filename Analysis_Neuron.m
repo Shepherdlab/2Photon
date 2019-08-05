@@ -1,7 +1,7 @@
 function []=Analysis_Neuron(graph,Left,Right,Binoc)
 
 % program is designed to import Suite2P data. Select F.npy, and then select
-% the .xml of your Prairie two-photon scan and .csv file of the Prairie
+% the .xml data of your Prairie two-photon scan and .csv file of the Prairie
 % two-photon electrophysiology. If anaylzing multiple recordings in a
 % cocatenated stack, enter number of frames for each recording in the order
 % in which they are in the stack. 
@@ -13,14 +13,16 @@ function []=Analysis_Neuron(graph,Left,Right,Binoc)
 %In the same folder as your F.npy file, this program will look for your
 %iscell.npy and Fneu.npy files that contain your manual classifications
 %from Suite2P and the trace of the neuropil surrounding each neuron. In the
-%same file as your prairie data, this program will look for stimevents.m,
+%same file as your Prairie data, this program will look for stimevents.m,
 %which contains the identity of your stimuli associated with each 5 volt
-%square wave pulse. stimevents is read left to right top to bottom. 
+%square wave pulse. stimevents is read left to right top to bottom. With
+%each row being a repeated block of your randomized stimuli. In our case,
+%this is a 5x12 matrix.
 
-%Saves output in folder with Prairie data, separate output for ech scan
+%Saves output in folder with Prairie data, separates output for each scan
 %(ie, left, right, binoc). 
 
-%Kyle Jenks, 2019-04-18. Shepherd Lab, University of Utah. 
+%Kyle Jenks, 2019-08-05. Shepherd Lab, University of Utah. 
 
 %% open and import .npy file 
 [filename, pathname] = uigetfile('F.npy', 'Select your .npy F data file');
@@ -29,9 +31,9 @@ if isequal(filename,0) || isequal(pathname,0)
     disp('action canceled')
 return
 end
-    %set current directory to pathname
-    cd(pathname);
-    %set file to path string
+   %set current directory to pathname
+   cd(pathname);
+   %set file to path string
    file = [pathname filename]; 
    %Open Fluorescence info and neuropil data
    ROIdata_all = readNPY(file)';
@@ -45,11 +47,12 @@ end
    %0=discarded). 
    ROIdata_all=ROIdata_all(:,logical(iscell(:,1)));
    Fneu=Fneu(:,logical(iscell(:,1)));
-   %Correction factor set to 100%. Fully subtract neuropil
+   %Correction factor set to 100%. Fully subtract neuropil.
    ROIdata_sub = ROIdata_all-Fneu;
    
    %default number of loops
    number_loops=1;
+   %If there are two scans
    if nargin==3
        if isequal(Left+Right,length(ROIdata_all))==0
            return
@@ -58,6 +61,7 @@ end
    RightFrames=ROIdata_sub(Left+1:Left+Right,:);
    number_loops=2;
    end
+   %If there are three scans
     if nargin==4
        if isequal(Left+Right+Binoc,length(ROIdata_all))==0
            return
@@ -68,7 +72,7 @@ end
    number_loops=3;
    end
    
-   %% loop through left frames, then right
+   %% loop through left frames, then right, then binoc
    for hh=1:number_loops
        if hh==1
            if hh==1 && nargin>1
@@ -83,6 +87,7 @@ end
        if hh==3
            ROIdata_raw=BinocFrames;
        end
+       
 %% open and import XML file
   [filename, pathname] = uigetfile('*.xml', 'Select your .xml file from Prairie data');
 if isequal(filename,0) || isequal(pathname,0)
@@ -96,7 +101,7 @@ end
 
 %determine length
 framelength = length(data.PVScan.Sequence.Frame);
-%create cell of proper size
+%create vector of proper size for timestamps
 timestamps=zeros(framelength,1);
 %loop to extract timestamps, either relative or absolute
 if (data.PVScan.Sequence.Frame{1, 2}.Attributes.relativeTime>0)
@@ -125,7 +130,7 @@ end
 roundedtimes=round(electrophystime);
 shiftdown=[0,0;roundedtimes];
 shiftup=[roundedtimes;0,0];
-%find differences
+%find differences between the two shifted vectors
 firstevent=(eq(shiftdown(:,2),shiftup(:,2)));
 %1 now means there was an event
 secondevent=1.-firstevent;
@@ -137,10 +142,14 @@ thirdevent=secondevent(1:end-1);
 event_timestamps=(roundedtimes(:,1).*thirdevent)/1000;
 %remove zeros from event_timestamps 
 Events_notzero=event_timestamps(event_timestamps~=0);
+%remove events that follow the preceding event with less than 0.5 second
+%delay. indicates an error introduced by a non-instantaneous change in
+%voltage.
+Events_notzero = Events_notzero(diff([0 Events_notzero'])>0.5);
 %take every 2nd value of a matrix, this is the start of each block of
-%stimuli
+%stimuli (starting from 1st event)
 startevent=Events_notzero(1:2:end);
-%take every 2nd value form 2, this is the blank frames
+%take every 2nd value from 2nd event, this is the blank frames start time
 blankframes=Events_notzero(2:2:end);
 
 %% find F for each ROI and convert data to Z-score
@@ -156,7 +165,7 @@ end
 %exclude first empty row
 F_data=F_data(2:end,:);
 clear ii 
-%calculate mean and stdev of each ROI ISI
+%calculate mean and stdev of each ROI's ISI
 meanF=mean(F_data(1:end,:),1);
 stdevF=std(F_data(1:end,:),[],1);
 
@@ -188,7 +197,7 @@ counts = histc(eventmatrix(:,1), uniquestims);
 
 %% extract time series data. ASSUMES A FIVE SECOND STIM.
 for i=1:length(uniquestims)
-    %timestamps for uniquestim i
+    %timestamps for unique stims i
     stim=uniquestims(i);
     uniquetimestamps=eventmatrix(eventmatrix(:,1)==stim,2);
     %cell array to store data
@@ -198,7 +207,7 @@ for i=1:length(uniquestims)
        %data time for each stim, 5 seconds before to 10 seconds after stim
        %start time
        Datacell{i,j+1}=timestamps(timestamps >=(uniquetimestamps(j)-5)&timestamps <=(uniquetimestamps(j)+10));
-       % ROI data for all ROIs for that time range around the stimulus
+       % ROI data for all ROIs for that time range around the stim
         Datacell{i,j+1}(:,2:numROIs+1)=ROIdata(timestamps >=(uniquetimestamps(j)-5)&timestamps <=(uniquetimestamps(j)+10),:);
         %normalize times of each event to be on a scale with 0 as the event
         %by subtracting the stim time
@@ -210,15 +219,15 @@ end
 %% Calculate mean response and p values
 %Preallocate matrix for mean response to stimuli
 mean_data=zeros(numROIs,length(uniquestims));
-%preallocate matrix for the T test of pre vs stim means
+%preallocate matrix for the t test of pre vs stim means
 p_data=zeros(numROIs,length(uniquestims));
 %preallocate matrix for each inidivudal pre trial period
 pre_data=zeros(numROIs,length(uniquestims),max(counts));
-%mean pre-stim period
+%preallocate matrix for the mean pre-stim period
 mean_pre=zeros(numROIs,length(uniquestims));
 %preallocate matrix for mean of each individual trial
 trial_data=zeros(numROIs,length(uniquestims),max(counts));
-%preallocate matrix for each inidivudal pre trial period
+%preallocate matrix for each individual pre trial period
 pre_data=zeros(numROIs,length(uniquestims),max(counts));
 
 %Calculate without graphing data
@@ -238,7 +247,10 @@ for i=1:length(uniquestims)
        %take mean of pre-stim periods from -4 to 0 seconds
        pre_data(l,i,j)=mean(Datacell{i,j+1}(Datacell{i,j+1}(:,1)>=-4&Datacell{i,j+1}(:,1)<=0,l+1));
     end
-    %Take mean of traces
+    %Take mean of traces using robust mean. This discards outliers for each
+    %time point, which helps the mean curve to be more representative of an
+    %actual response. Check robustMean documentation to determine if this
+    %would be applicable to your analysis
     mean_trace=robustMean(stim_traces,2);
     %take the mean of the mean trace during stimulus period (0-5)
     mean_data(l,i)=mean(mean_trace(51:101,:));
@@ -256,8 +268,9 @@ end
 if nargin>0 && graph==1
 %Loop through the ROIs
 for l=1:numROIs
-    %create new figure with ROI name
-figure('name',sprintf('Plot of ROI %d',l),'numbertitle','off','position',[250,500,1000,700])
+    %create new figure with ROI name and position. Adjust for your monitor
+    %needs. 
+figure('name',sprintf('Plot of ROI %d',l),'numbertitle','off','position',[250,100,1000,700])
     %loop through stims
 for i=1:length(uniquestims)
     %create empty matrix to contain interpolated stim traces
@@ -286,14 +299,15 @@ for i=1:length(uniquestims)
     [~,p_data(l,i)]=ttest(reshape(pre_data(l,i,:),counts(i),1),reshape(trial_data(l,i,:),counts(i),1));
     %Insert a legend
     Legend=legend(sprintf('T-Test=%0.3f',p_data(l,i)),sprintf('Mean=%0.3f',mean_data(l,i))); 
-    %Color plots with STD larger than 0.5 && P<0.05
+    %Color plots with STD larger than 0.5 && P<0.05 and make their legend
+    %bold
 if mean_data(l,i)>=0.5 && p_data(l,i)<=0.05
     Legend.FontWeight='bold';
     set(gca,'Color',[0.4 0.8 0.8]);
 end
     clear mean_trace stim_traces TF
 end
-%pause then advance
+%pause then advance. Allows user time to look at the plots. 
 pause on
     pause(5);
 pause off
@@ -303,13 +317,13 @@ end
 end
 clear l i j
 %Clear all unnecessary variables
-    clear avgData avgH blankframes Chunk counts data databetween Datacell electrophystime event_timestamps eventmatrix Events_notzero F_data file 
-    clear filename firstevent framelength graphsize i ii j l numROIs pathname ROIdata_raw roundedtimes secondevent shiftdown 
+ clear avgData avgH blankframes Chunk counts data databetween Datacell electrophystime event_timestamps eventmatrix Events_notzero F_data file 
+ clear filename firstevent framelength graphsize i ii j l numROIs pathname ROIdata_raw roundedtimes secondevent shiftdown 
  clear shiftup standarddev startevent stim stimevents stimnumber thirdevent timestamps uniquestims uniquetimestamps w ROIdata ROIdata_raw ROIdata_all
  clear Fneu iscell ISI_FoverF Legend ROIdata_sub TimeLength
- %Save Data in the CD
+ %Save Data in the current directory
  save('Analysis_Neuron');
- %Report number of responsive cells 
+ %Report number of responsive cells in the command window
  Responsive_mean=mean_data>=0.5 & p_data<=0.05;
  Responsive_cells=(Responsive_mean);
  Responsive_cells=sum(Responsive_cells,2);

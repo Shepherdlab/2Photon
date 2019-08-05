@@ -1,33 +1,32 @@
-function []=Analysis_Neuropil(graph,Left,Right,Binoc)
+function []=Analysis_Neuron_scrambled(graph,Left,Right,Binoc)
 
-% program is designed to import Suite2P data. Select Fneu.npy, and then select
+% program is designed to import Suite2P data. Select F.npy, and then select
 % the .xml of your Prairie two-photon scan and .csv file of the Prairie
 % two-photon electrophysiology. If anaylzing multiple recordings in a
 % cocatenated stack, enter number of frames for each recording in the order
 % in which they are in the stack. 
 
+% THIS PROGRAM RANDOMIZES STIMULUS ORDER! ONLY USE TO EVALUATE FALSE
+% DISCOVERY RATE!
+
 %graph: 1==display each ROI's traces, 0==only calculate and save outputs
 %Left==# left frames, Right==# right frames, Binoc==# binoc frames
 
 %Assumptions:
-%In the same folder as your Fneu.npy file, this program will look for your
-%iscell.npy that contain your manual classifications from Suite2P. 
-%Additionally, a .csv file labeled blood vessel.csv should contain a column
-%vector of the mean fluorescence of your chosen blood vessel from every
-%frame of your cocatenated stack. This can be done manually and saved from
-%ImageJ using the ROI manager. 
-%in the same file as your prairie data, this program will look for 
-%stimevents.m, which contains the identity of your stimuli associated with
-%each 5 volt square wave pulse. stimevents is read left to right top to 
-%bottom. 
+%In the same folder as your F.npy file, this program will look for your
+%iscell.npy and Fneu.npy files that contain your manual classifications
+%from Suite2P and the trace of the neuropil surrounding each neuron. In the
+%same file as your prairie data, this program will look for stimevents.m,
+%which contains the identity of your stimuli associated with each 5 volt
+%square wave pulse. stimevents is read left to right top to bottom. 
 
-%Saves output in folder with Prairie data, separate output for each scan
+%Saves output in folder with Prairie data, separate output for ech scan
 %(ie, left, right, binoc). 
 
 %Kyle Jenks, 2019-04-18. Shepherd Lab, University of Utah. 
 
-%% open and import .npy file of left and right data
-[filename, pathname] = uigetfile('Fneu.npy', 'Select your .npy Fneu data file');
+%% open and import .npy file 
+[filename, pathname] = uigetfile('F.npy', 'Select your .npy F data file');
 %cancel if user clicks cancel
 if isequal(filename,0) || isequal(pathname,0)
     disp('action canceled')
@@ -37,22 +36,22 @@ end
     cd(pathname);
     %set file to path string
    file = [pathname filename]; 
-  % ROIdata_raw = csvread(file);
+   %Open Fluorescence info and neuropil data
    ROIdata_all = readNPY(file)';
   
-   %open blood vessel data
-   Fvessel = csvread('blood vessel.csv');
-   
-   %subtract fvessel from every column
-   ROIdata_all=ROIdata_all-Fvessel;
+   %open neuropil data
+   Fneu = readNPY('Fneu.npy')';
    
    %open iscell
    iscell=readNPY('iscell.npy');
-   %Only analyze neuropil around user selected cells (1=chosen,
+   %Only analyze neuropil and ROIs that user selected as cells (1=chosen,
    %0=discarded). 
-   ROIdata_sub=ROIdata_all(:,logical(iscell(:,1)));
+   ROIdata_all=ROIdata_all(:,logical(iscell(:,1)));
+   Fneu=Fneu(:,logical(iscell(:,1)));
+   %Correction factor set to 100%. Fully subtract neuropil
+   ROIdata_sub = ROIdata_all-Fneu;
    
-  %default number of loops
+   %default number of loops
    number_loops=1;
    if nargin==3
        if isequal(Left+Right,length(ROIdata_all))==0
@@ -72,7 +71,7 @@ end
    number_loops=3;
    end
    
-   %% loop through left frames, then right, then binoc
+   %% loop through left frames, then right
    for hh=1:number_loops
        if hh==1
            if hh==1 && nargin>1
@@ -100,7 +99,7 @@ end
 
 %determine length
 framelength = length(data.PVScan.Sequence.Frame);
-%create a vector of proper size
+%create cell of proper size
 timestamps=zeros(framelength,1);
 %loop to extract timestamps, either relative or absolute
 if (data.PVScan.Sequence.Frame{1, 2}.Attributes.relativeTime>0)
@@ -141,10 +140,6 @@ thirdevent=secondevent(1:end-1);
 event_timestamps=(roundedtimes(:,1).*thirdevent)/1000;
 %remove zeros from event_timestamps 
 Events_notzero=event_timestamps(event_timestamps~=0);
-%remove events that follow the preceding event with less than 0.5 second
-%delay. indicates an error introduced by a non-instantaneous change in
-%voltage.
-Events_notzero = Events_notzero(diff([0 Events_notzero'])>0.5);
 %take every 2nd value of a matrix, this is the start of each block of
 %stimuli
 startevent=Events_notzero(1:2:end);
@@ -193,6 +188,14 @@ eventmatrix(:,2)=startevent(1:length(stimevents));
 uniquestims=unique(eventmatrix(:,1));
 %presentations per stim 
 counts = histc(eventmatrix(:,1), uniquestims);
+
+
+%% Randomization!!!!
+%take length of recording subtracting 15 seconds from both ends
+midtimes=timestamps(timestamps>=15 & timestamps<=timestamps(end)-15);
+
+%randomize event timestamps to random times during recording
+eventmatrix(:,2)=midtimes(randperm(length(midtimes),length(eventmatrix(:,2))));
 
 %% extract time series data. ASSUMES A FIVE SECOND STIM.
 for i=1:length(uniquestims)
@@ -315,17 +318,15 @@ clear l i j
     clear filename firstevent framelength graphsize i ii j l numROIs pathname ROIdata_raw roundedtimes secondevent shiftdown 
  clear shiftup standarddev startevent stim stimevents stimnumber thirdevent timestamps uniquestims uniquetimestamps w ROIdata ROIdata_raw ROIdata_all
  clear Fneu iscell ISI_FoverF Legend ROIdata_sub TimeLength
- %Save Data in the CD
- save('Analysis_Neuropil');
- %Report number of responsive neuropil patches 
+ %Report number of responsive cells 
  Responsive_mean=mean_data>=0.5 & p_data<=0.05;
- Responsive_patches=(Responsive_mean);
- Responsive_patches=sum(Responsive_patches,2);
- Responsive_patches(Responsive_patches>=1)=1;
- Responsive_patches=sum(Responsive_patches);
- Report=sprintf('There were %s responsive patches',num2str(Responsive_patches));
+ Responsive_cells=(Responsive_mean);
+ Responsive_cells=sum(Responsive_cells,2);
+ Responsive_cells(Responsive_cells>=1)=1;
+ Responsive_cells=sum(Responsive_cells);
+ Report=sprintf('There were %s responsive cells',num2str(Responsive_cells));
  disp(Report)
- clear Report Responsive_patches
+ clear Report Responsive_cells
  %Play a beep
  beep
    end
