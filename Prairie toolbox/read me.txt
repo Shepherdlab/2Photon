@@ -1,0 +1,25 @@
+
+Prairie Technologies MATLAB Toolbox
+------------------------------------------------------------------------
+Project Home: http://code.google.com/p/ptech-matlab-toolbox/
+
+
+This is a small collection of MATLAB functions that allow simple interfacing with confocal microscopes made by Prairie Technologies.
+
+File Descriptions:
+
+import_PrairieTif.m
+	Import tif images taken from a Prairie Confocal Laser Scanning Microscope into MATLAB with axis convention xyczt. This code was tested only on one system, so if it does not work on your images please submit the error and example images.
+
+prairieView_Com.m
+	This script allows direct low level communication with Prairie View via a TCP connection. This is used for automation: directing the microscope to stage positions, loading different settings, and acquiring images. When Prairie view is open it automatically monitors port 1236 for commands. Commands are simple text messages; please see Prairie scripting API for syntax.
+
+prairieView_ExportCoordFile.m
+	Exports a series of xyz coordinates from MATLAB to disk in XML format that Prairie View can load as marked locations.
+
+
+prairieView_ImageMonitor
+	This is a function used to image an experiment time point, and is a great example of communication to Prairie View over a TCP connection.  Given a list of xyz stage locations, acquires a zstack at each with the configuration specified that is saved as a file on the hard disk. Images are saved to hard disk with the base image name and number specified. Total z slices and z slice spacing can be specified.
+
+
+
